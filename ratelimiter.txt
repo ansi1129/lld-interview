@@ -1,0 +1,238 @@
+🎯 🧾 1. Problem Understanding
+
+🗣️ Say:
+
+“We need to design a rate limiter service that restricts the number of requests a user/client can make within a given time window.”
+
+🧾 2. Requirements & Clarifications
+✅ Functional
+Allow / Reject request
+Support multiple algorithms:
+Fixed Window
+Token Bucket
+Dynamic rule configuration
+Per-user / per-API limits
+❗ Non-Functional
+Low latency
+High throughput
+Thread-safe
+Distributed-ready
+🏗️ 3. High-Level Design
+Client
+  ↓
+API Gateway / Middleware
+  ↓
+RateLimiterService
+  ↓
+Strategy (algorithm)
+  ↓
+Storage (in-memory / Redis)
+🧠 4. Core Design Decisions
+🔥 1. Strategy Pattern (IMPORTANT)
+Different algorithms = interchangeable strategies
+🔥 2. Key Concept
+key = userId / apiKey / IP
+🔥 3. Storage
+In-memory (LLD)
+Redis (production)
+🏗️ 5. Models (WITH USAGE)
+RateLimitConfig
+type RateLimitConfig struct {
+	Key         string
+	Limit       int
+	WindowSize  int // seconds
+	Algorithm   string
+}
+RequestContext
+type RequestContext struct {
+	Key string
+}
+RateLimiter Interface
+type RateLimiter interface {
+	Allow(key string) bool
+}
+🧠 6. Algorithms (VERY IMPORTANT)
+🔥 Fixed Window
+1. Maintain counter per window
+2. If count < limit → allow
+3. Else → reject
+4. Reset after window expires
+🔥 Token Bucket
+1. Tokens refill at fixed rate
+2. Each request consumes 1 token
+3. If token available → allow
+4. Else → reject
+💻 7. COMPLETE IMPLEMENTATION (INTERVIEW READY)
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+//////////////////////////////////////////////////////
+// INTERFACE
+//////////////////////////////////////////////////////
+
+type RateLimiter interface {
+	Allow(key string) bool
+}
+
+//////////////////////////////////////////////////////
+// FIXED WINDOW
+//////////////////////////////////////////////////////
+
+type FixedWindowLimiter struct {
+	limit      int
+	windowSize time.Duration
+	store      map[string]int
+	timestamp  map[string]time.Time
+	mutex      sync.Mutex
+}
+
+func NewFixedWindowLimiter(limit int, window int) *FixedWindowLimiter {
+	return &FixedWindowLimiter{
+		limit:      limit,
+		windowSize: time.Duration(window) * time.Second,
+		store:      make(map[string]int),
+		timestamp:  make(map[string]time.Time),
+	}
+}
+
+func (f *FixedWindowLimiter) Allow(key string) bool {
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
+
+	now := time.Now()
+
+	if t, ok := f.timestamp[key]; !ok || now.Sub(t) > f.windowSize {
+		f.timestamp[key] = now
+		f.store[key] = 1
+		return true
+	}
+
+	if f.store[key] < f.limit {
+		f.store[key]++
+		return true
+	}
+
+	return false
+}
+
+//////////////////////////////////////////////////////
+// TOKEN BUCKET
+//////////////////////////////////////////////////////
+
+type TokenBucket struct {
+	capacity   int
+	tokens     map[string]int
+	refillRate int
+	lastRefill map[string]time.Time
+	mutex      sync.Mutex
+}
+
+func NewTokenBucket(capacity int, refill int) *TokenBucket {
+	return &TokenBucket{
+		capacity:   capacity,
+		refillRate: refill,
+		tokens:     make(map[string]int),
+		lastRefill: make(map[string]time.Time),
+	}
+}
+
+func (t *TokenBucket) Allow(key string) bool {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	now := time.Now()
+
+	last, ok := t.lastRefill[key]
+	if !ok {
+		t.tokens[key] = t.capacity
+		t.lastRefill[key] = now
+	}
+
+	elapsed := int(now.Sub(last).Seconds())
+	refill := elapsed * t.refillRate
+
+	if refill > 0 {
+		t.tokens[key] = min(t.capacity, t.tokens[key]+refill)
+		t.lastRefill[key] = now
+	}
+
+	if t.tokens[key] > 0 {
+		t.tokens[key]--
+		return true
+	}
+
+	return false
+}
+
+//////////////////////////////////////////////////////
+// FACTORY
+//////////////////////////////////////////////////////
+
+func GetLimiter(algo string) RateLimiter {
+	if algo == "FIXED" {
+		return NewFixedWindowLimiter(5, 10)
+	}
+	return NewTokenBucket(5, 1)
+}
+
+//////////////////////////////////////////////////////
+// MAIN
+//////////////////////////////////////////////////////
+
+func main() {
+
+	limiter := GetLimiter("FIXED")
+
+	for i := 0; i < 10; i++ {
+		if limiter.Allow("user1") {
+			fmt.Println("Allowed")
+		} else {
+			fmt.Println("Blocked")
+		}
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+🔍 8. Code Explanation
+FixedWindowLimiter
+Resets counter after time window
+Simple but bursty
+TokenBucket
+Smooth traffic
+Allows bursts
+Strategy Pattern
+Switch algorithms easily
+⏱️ 9. Complexity
+Operation	Complexity
+Allow()	O(1)
+Space	O(N users)
+🎯 10. SOLID Principles
+SRP → each limiter independent
+OCP → new algorithms easily added
+DIP → service depends on interface
+🎯 11. Design Patterns
+Strategy Pattern
+Factory Pattern
+🚀 12. Production Enhancements
+Redis (distributed storage)
+Sliding window (more accurate)
+Rate limit per endpoint
+Distributed locks
+Token prefetching
+🎯 13. Final Interview Answer
+
+“I designed the rate limiter using a strategy pattern to support multiple algorithms like fixed window and token bucket, with O(1) request checks and thread-safe in-memory storage, and the system can be extended to Redis for distributed environments.”
+
+🔥 Interview Killer Add-on
+
+“Token bucket is preferred in production due to smoother traffic control compared to fixed window burstiness.”
