@@ -240,7 +240,7 @@ func main() {
 	service.Register("user1", RateLimitConfig{
 		Limit:      5,
 		WindowSize: 10 * time.Second,
-		Algorithm:  "SLIDING",
+		Algorithm:  "FIXED",
 	})
 
 	// Simulate requests
