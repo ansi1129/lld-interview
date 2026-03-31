@@ -18,7 +18,7 @@ const (
 )
 
 //////////////////////////////////////////////////////
-// MODELS (UPDATED)
+// MODELS
 //////////////////////////////////////////////////////
 
 type User struct {
@@ -38,7 +38,7 @@ type Split struct {
 }
 
 type Expense struct {
-	ID      string // ✅ Added ExpenseID
+	ID      string
 	GroupID string
 	PaidBy  string
 	Amount  float64
@@ -60,8 +60,7 @@ type SplitStrategy interface {
 	Calculate(*Expense) ([]Split, error)
 }
 
-// -------- Equal Split --------
-
+// Equal Split
 type EqualSplit struct{}
 
 func (e *EqualSplit) Calculate(exp *Expense) ([]Split, error) {
@@ -74,7 +73,7 @@ func (e *EqualSplit) Calculate(exp *Expense) ([]Split, error) {
 	total := base * float64(n)
 	rem := math.Round((exp.Amount-total)*100) / 100
 
-	res := []Split{}
+	var res []Split
 	for i, s := range exp.Splits {
 		amt := base
 		if i == 0 {
@@ -85,8 +84,7 @@ func (e *EqualSplit) Calculate(exp *Expense) ([]Split, error) {
 	return res, nil
 }
 
-// -------- Exact Split --------
-
+// Exact Split
 type ExactSplit struct{}
 
 func (e *ExactSplit) Calculate(exp *Expense) ([]Split, error) {
@@ -165,7 +163,7 @@ func (b *BalanceService) showGroup(groupID string, users map[string]*User) {
 }
 
 //////////////////////////////////////////////////////
-// GREEDY SIMPLIFICATION
+// GREEDY SETTLEMENT
 //////////////////////////////////////////////////////
 
 func (b *BalanceService) Simplify(groupID string) []Settlement {
@@ -227,7 +225,11 @@ func (b *BalanceService) Simplify(groupID string) []Settlement {
 func (b *BalanceService) ShowSimplified(groupID string, users map[string]*User) {
 	settlements := b.Simplify(groupID)
 
-	fmt.Println("\nSimplified Settlements:")
+	if len(settlements) == 0 {
+		fmt.Println("No settlements needed")
+		return
+	}
+
 	for _, s := range settlements {
 		fmt.Printf("%s pays %s: %.2f\n",
 			users[s.From].Username,
@@ -299,16 +301,25 @@ func (g *GroupService) AddUser(groupID string, user *User) {
 }
 
 //////////////////////////////////////////////////////
-// MAIN
+// TEST RUNNERS
 //////////////////////////////////////////////////////
 
-func main() {
+func printAll(bs *BalanceService, group *Group) {
+	fmt.Println("\n--- Raw Balances ---")
+	bs.showGroup(group.ID, group.Members)
+
+	fmt.Println("\n--- Simplified Settlements ---")
+	bs.ShowSimplified(group.ID, group.Members)
+}
+
+func runBasicCase() {
+	fmt.Println("\n========== BASIC ==========")
 
 	bs := NewBalanceService()
 	es := NewExpenseService(bs)
 	gs := NewGroupService()
 
-	group := gs.CreateGroup("g1", "Trip Group")
+	group := gs.CreateGroup("g1", "Trip")
 
 	u1 := &User{"u1", "Ankit"}
 	u2 := &User{"u2", "Rahul"}
@@ -320,37 +331,51 @@ func main() {
 
 	es.groups = gs.groups
 
-	exp1 := &Expense{
+	es.AddExpense(&Expense{
 		ID:      "e1",
 		GroupID: "g1",
 		PaidBy:  "u1",
 		Amount:  900,
 		Type:    EQUAL,
 		Splits: []Split{
-			{UserID: "u1"},
-			{UserID: "u2"},
-			{UserID: "u3"},
+			{"u1", 0}, {"u2", 0}, {"u3", 0},
 		},
-	}
+	})
 
-	es.AddExpense(exp1)
+	printAll(bs, group)
+}
 
-	exp2 := &Expense{
-		ID:      "e2",
-		GroupID: "g1",
-		PaidBy:  "u1",
-		Amount:  500,
-		Type:    EXACT,
-		Splits: []Split{
-			{UserID: "u2", Amount: 200},
-			{UserID: "u3", Amount: 300},
-		},
-	}
+func runCircularCase() {
+	fmt.Println("\n========== CIRCULAR ==========")
 
-	es.AddExpense(exp2)
+	bs := NewBalanceService()
+	es := NewExpenseService(bs)
+	gs := NewGroupService()
 
-	fmt.Println("\nRaw Balances:")
-	bs.showGroup("g1", group.Members)
+	group := gs.CreateGroup("g2", "Circle")
 
-	bs.ShowSimplified("g1", group.Members)
+	u1 := &User{"u1", "A"}
+	u2 := &User{"u2", "B"}
+	u3 := &User{"u3", "C"}
+
+	gs.AddUser("g2", u1)
+	gs.AddUser("g2", u2)
+	gs.AddUser("g2", u3)
+
+	es.groups = gs.groups
+
+	es.AddExpense(&Expense{"e1", "g2", "u1", 100, EXACT, []Split{{"u2", 100}}})
+	es.AddExpense(&Expense{"e2", "g2", "u2", 100, EXACT, []Split{{"u3", 100}}})
+	es.AddExpense(&Expense{"e3", "g2", "u3", 100, EXACT, []Split{{"u1", 100}}})
+
+	printAll(bs, group)
+}
+
+//////////////////////////////////////////////////////
+// MAIN
+//////////////////////////////////////////////////////
+
+func main() {
+	runBasicCase()
+	runCircularCase()
 }
